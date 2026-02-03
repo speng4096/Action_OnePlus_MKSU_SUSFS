@@ -134,7 +134,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
-          sudo apt install -y python3 git curl
+          sudo apt install -y python3 git curl libelf-dev dwarves build-essential bc bison flex libssl-dev
 
       - name: Show selected inputs debug
         run: |
