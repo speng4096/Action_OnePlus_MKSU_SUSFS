@@ -335,41 +335,45 @@ jobs:
         if: ${{ github.event.inputs.CPU != 'sm8650' && github.event.inputs.CPU != 'sm7675' }}
         run: |
          cd kernel_workspace
-                  
+
+         # 1. 基础 PATH 修复
          sed -i '1i export PATH := /usr/bin:/usr/sbin:$(PATH)' kernel_platform/common/Makefile
          
-         CLANG_FLAGS="--rtlib=compiler-rt -Wno-unused-command-line-argument -stdlib=libc++ -fuse-ld=lld -Wno-format-invalid-specifier -Wno-gnu-alignof-expression"
-
+         # 2. 注入“重置”逻辑
+         # 使用 := 强制覆盖变量，丢弃之前所有的 Android 预设参数(包括 --sysroot)
+         # 我们手动指定最基本的 -I 路径，确保 GCC 能找到 Ubuntu 的头文件
          cat <<EOF >> kernel_platform/common/Makefile
          
-         HOSTCC := gcc
+         # --- FORCE HOST RESET START ---
+         # 强制使用系统编译器
+         HOSTCC  := gcc
          HOSTCXX := g++
-         HOSTLD := ld
-         HOSTAR := ar
+         HOSTLD  := ld
+         HOSTAR  := ar
          
-         HOSTCFLAGS += -Wno-error
-         HOSTCXXFLAGS += -Wno-error
+         # 【核心】重置编译参数 (清空 Android 的 prebuilts 路径)
+         # 直接指定 -I/usr/include 及其架构目录，确保 features.h 能找到 bits/timesize.h
+         BASIC_CFLAGS := -Wall -O2 -g -Wno-error -I/usr/include -I/usr/include/x86_64-linux-gnu -I/usr/include/libelf
+         BASIC_LDFLAGS := -L/usr/lib/x86_64-linux-gnu -L/usr/lib64
          
-         HOSTCFLAGS := \$(filter-out $CLANG_FLAGS, \$(HOSTCFLAGS))
-         KBUILD_HOSTCFLAGS := \$(filter-out $CLANG_FLAGS, \$(KBUILD_HOSTCFLAGS))
+         # 覆盖内核构建系统的变量
+         HOSTCFLAGS  := \$(BASIC_CFLAGS)
+         HOSTCXXFLAGS := \$(BASIC_CFLAGS)
+         HOSTLDFLAGS := \$(BASIC_LDFLAGS)
          
-         HOSTCXXFLAGS := \$(filter-out $CLANG_FLAGS, \$(HOSTCXXFLAGS))
-         KBUILD_HOSTCXXFLAGS := \$(filter-out $CLANG_FLAGS, \$(KBUILD_HOSTCXXFLAGS))
-         
-         HOSTLDFLAGS := \$(filter-out $CLANG_FLAGS, \$(HOSTLDFLAGS))
-         KBUILD_HOSTLDFLAGS := \$(filter-out $CLANG_FLAGS, \$(KBUILD_HOSTLDFLAGS))
-         
-         HOSTCFLAGS += -I/usr/include -I/usr/include/libelf
-         # --- END FORCE ---
+         # 覆盖 KBUILD 系列变量 (防止脚本通过环境变量回注)
+         KBUILD_HOSTCFLAGS := \$(BASIC_CFLAGS)
+         KBUILD_HOSTCXXFLAGS := \$(BASIC_CFLAGS)
+         KBUILD_HOSTLDFLAGS := \$(BASIC_LDFLAGS)
+         # --- FORCE HOST RESET END ---
          EOF
          
+         # 3. 辅助修复：软链接 (作为最后一道防线)
          sudo ln -sf /usr/include/libelf/libelf.h /usr/include/libelf.h
          sudo ln -sf /usr/include/libelf/gelf.h /usr/include/gelf.h
 
-         echo "Starting build with GCC Override + Warning Suppression..."
+         echo "Starting build with TOTAL HOST FLAG RESET..."
          LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
-
-
          
       - name: Make AnyKernel3
         run: |
