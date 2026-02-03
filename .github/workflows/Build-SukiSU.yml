@@ -330,13 +330,14 @@ jobs:
         run: |
           cd kernel_workspace
           ./kernel_platform/build_with_bazel.py -t ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
-          
+
       - name: Fallback build kernel
         if: ${{ github.event.inputs.CPU != 'sm8650' && github.event.inputs.CPU != 'sm7675' }}
         run: |
          cd kernel_workspace
-         export HOSTCFLAGS="-I/usr/include -I/usr/include/libelf"
-         export HOSTLDFLAGS="-L/usr/lib/x86_64-linux-gnu -lelf -lz"
+         sed -i '2i export PATH=$PATH:/usr/bin:/usr/sbin:/usr/local/bin' kernel_platform/oplus/build/oplus_build_kernel.sh
+         sed -i 's/CFLAGS += -g/CFLAGS += -g -I\/usr\/include -I\/usr\/include\/libelf/g' kernel_platform/common/tools/bpf/resolve_btfids/Makefile
+         sed -i 's/LDFLAGS +=/LDFLAGS += -L\/usr\/lib\/x86_64-linux-gnu -lelf -lz /g' kernel_platform/common/tools/bpf/resolve_btfids/Makefile
          LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
 
       - name: Make AnyKernel3
