@@ -259,6 +259,11 @@ jobs:
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$CONFIG_FILE"
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$CONFIG_FILE"
 
+          # 开启BTF支持
+          echo "CONFIG_DEBUG_INFO_BTF=y" >> "$CONFIG_FILE"
+          echo "CONFIG_DEBUG_INFO_BTF_MODULES=y" >> "$CONFIG_FILE" 
+          echo "CONFIG_DEBUG_INFO=y" >> "$CONFIG_FILE"
+
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
