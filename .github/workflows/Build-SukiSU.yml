@@ -345,13 +345,13 @@ jobs:
         run: |
           # 1. 寻找 vmlinux 文件
           # 优先找 dist 目录下的，如果没有就找构建目录下的
-          VMLINUX_PATH=$(find ./kernel_workspace -name vmlinux | grep "dist/vmlinux" | head -n 1)
+          VMLINUX_PATH=$(find $GITHUB_WORKSPACE/kernel_workspace -name vmlinux | grep "dist/vmlinux" | head -n 1)
           if [ -z "$VMLINUX_PATH" ]; then
-            VMLINUX_PATH=$(find ./kernel_workspace -name vmlinux | grep "out" | head -n 1)
+            VMLINUX_PATH=$(find $GITHUB_WORKSPACE/kernel_workspace -name vmlinux | grep "out" | head -n 1)
           fi
 
-          if [ ! -f "$VMLINUX_PATH" ]; then
-            echo "Error: vmlinux not found!"
+          if [ -z "$VMLINUX_PATH" ] || [ ! -f "$VMLINUX_PATH" ]; then
+            echo "Warning: vmlinux not found! Skipping BTF generation."
             # 如果没找到 vmlinux，可能只生成了 Image，这种情况下无法生成 BTF
             exit 0 
           fi
@@ -361,20 +361,21 @@ jobs:
           # 2. 使用 pahole 生成 BTF 段 (这是关键，绕过了内核构建系统的检查)
           # -J: 生成 BTF
           # --btf_gen_floats: 支持浮点数 (现代 eBPF 需要)
-          # --skip_encoding_btf_in_elf: 避免直接写回 vmlinux 导致文件校验失败（可选，但为了安全直接提取更好）
-          # 这里我们直接写回 vmlinux，因为反正编译已经结束了
           echo "Generating BTF info..."
           pahole -J --btf_gen_floats "$VMLINUX_PATH"
 
-          # 3. 提取 .BTF 段为独立文件
+          # 3. 提取 .BTF 段为独立文件到临时位置
           echo "Extracting .BTF section..."
-          llvm-objcopy --dump-section .BTF=./AnyKernel3/oneplus.btf "$VMLINUX_PATH"
+          BTF_OUTPUT="$GITHUB_WORKSPACE/oneplus.btf"
+          llvm-objcopy --dump-section .BTF="$BTF_OUTPUT" "$VMLINUX_PATH"
 
-          if [ -f "./AnyKernel3/oneplus.btf" ]; then
+          if [ -f "$BTF_OUTPUT" ]; then
             echo "Success: oneplus.btf generated!"
-            ls -lh ./AnyKernel3/oneplus.btf
+            ls -lh "$BTF_OUTPUT"
+            # 设置环境变量供后续步骤使用
+            echo "BTF_FILE=$BTF_OUTPUT" >> $GITHUB_ENV
           else
-            echo "Failed to generate oneplus.btf"
+            echo "Warning: Failed to generate oneplus.btf"
           fi
 
       - name: Make AnyKernel3
@@ -433,6 +434,12 @@ jobs:
               echo "$file 不存在，跳过复制"
             fi
           done
+          fi
+
+          # 复制 BTF 文件（如果存在）
+          if [ -n "$BTF_FILE" ] && [ -f "$BTF_FILE" ]; then
+            cp "$BTF_FILE" ./AnyKernel3/oneplus.btf
+            echo "已复制 BTF 文件到 AnyKernel3"
           fi
 
       - name: Apply patch_linux and replace Image
