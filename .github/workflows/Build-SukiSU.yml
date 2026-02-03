@@ -336,15 +336,19 @@ jobs:
         run: |
          cd kernel_workspace
          
+
          sed -i '1i export PATH := /usr/bin:/usr/sbin:$(PATH)' kernel_platform/common/Makefile
+         
+
+         sed -i 's/--rtlib=compiler-rt//g' kernel_platform/common/Makefile
+         sed -i 's/-Wno-unused-command-line-argument//g' kernel_platform/common/Makefile
 
          echo "HOSTCC = gcc" >> kernel_platform/common/Makefile
          echo "HOSTCXX = g++" >> kernel_platform/common/Makefile
-         
+
          sudo ln -sf /usr/include/libelf/libelf.h /usr/include/libelf.h
          sudo ln -sf /usr/include/libelf/gelf.h /usr/include/gelf.h
 
-         echo "Starting build with HOSTCC=GCC override..."
          LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
 
 
