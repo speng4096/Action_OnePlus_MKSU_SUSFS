@@ -335,16 +335,19 @@ jobs:
         if: ${{ github.event.inputs.CPU != 'sm8650' && github.event.inputs.CPU != 'sm7675' }}
         run: |
          cd kernel_workspace
-
+         
          sed -i '1i export PATH := /usr/bin:/usr/sbin:$(PATH)' kernel_platform/common/Makefile
 
-         sed -i '1i export HOSTLDFLAGS := -L/usr/lib/x86_64-linux-gnu -L/lib/x86_64-linux-gnu -Wl,--allow-shlib-undefined $(HOSTLDFLAGS)' kernel_platform/common/Makefile
+         echo "HOSTCC = gcc" >> kernel_platform/common/Makefile
+         echo "HOSTCXX = g++" >> kernel_platform/common/Makefile
          
-         sed -i 's/CFLAGS += -g/CFLAGS += -g -I\/usr\/include -I\/usr\/include\/libelf/g' kernel_platform/common/tools/bpf/resolve_btfids/Makefile
-         sed -i 's/LDFLAGS +=/LDFLAGS += -L\/usr\/lib\/x86_64-linux-gnu -lelf -lz /g' kernel_platform/common/tools/bpf/resolve_btfids/Makefile
-         
-         echo "Starting build with Linker Suppression..."
+         sudo ln -sf /usr/include/libelf/libelf.h /usr/include/libelf.h
+         sudo ln -sf /usr/include/libelf/gelf.h /usr/include/gelf.h
+
+         echo "Starting build with HOSTCC=GCC override..."
          LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
+
+
          
       - name: Make AnyKernel3
         run: |
