@@ -180,16 +180,28 @@ jobs:
           git add -A
           git commit -m "Force remove -dirty suffix from kernel version"
 
-      # 添加 SukiSU Ultra
+      # 添加 SukiSU Ultra (锁定到稳定版本 a61b5b96)
       - name: Add KernelSU-SukiSU Ultra
         run: |
           cd kernel_workspace/kernel_platform
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          # 克隆 SukiSU-Ultra 到指定稳定 commit
+          git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git KernelSU
           cd ./KernelSU
-          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count main) "+" 10606)
+          git checkout a61b5b9657a561732d79e6339408bc1bd585c50d
+          KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" 10606)
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
           export KSU_VERSION=$KSU_VERSION
           sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
+          cd ..
+          # 将 KernelSU 链接到 common/drivers/kernelsu
+          ln -sf $(pwd)/KernelSU/kernel $(pwd)/common/drivers/kernelsu
+          # 修改 Kconfig 和 Makefile 以包含 KernelSU
+          if ! grep -q "kernelsu" common/drivers/Kconfig; then
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' common/drivers/Kconfig
+          fi
+          if ! grep -q "kernelsu" common/drivers/Makefile; then
+            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> common/drivers/Makefile
+          fi
 
       - name: Apply Patches SukiSU Ultra
         run: |
