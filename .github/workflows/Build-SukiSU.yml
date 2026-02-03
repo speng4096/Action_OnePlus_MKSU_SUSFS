@@ -336,44 +336,48 @@ jobs:
         run: |
          cd kernel_workspace
 
-         # 1. 基础 PATH 修复
+         # --- 修复 1: 确保 libelf 头文件软链接存在 (双重保险) ---
+         sudo ln -sf /usr/include/libelf/libelf.h /usr/include/libelf.h
+         sudo ln -sf /usr/include/libelf/gelf.h /usr/include/gelf.h
+
+         # --- 修复 2: 强制设置 PKG_CONFIG_PATH，让构建脚本能找到 pc 文件 ---
+         export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+
+         # --- 修复 3: 定义宿主机编译参数 (打通 /usr/include) ---
+         # 这一步至关重要，让内核编译 Host 工具时能看到 Ubuntu 的库
+         MY_HOSTCFLAGS="-I/usr/include -I/usr/include/x86_64-linux-gnu -I/usr/include/libelf"
+         MY_HOSTLDFLAGS="-L/usr/lib/x86_64-linux-gnu -L/usr/lib64 -lelf -lz"
+
+         # --- 修复 4: 修改 Makefile 注入逻辑 (更稳健的版本) ---
+         # 我们直接将这些 flag 注入到 Makefile 的顶部，确保优先级最高
          sed -i '1i export PATH := /usr/bin:/usr/sbin:$(PATH)' kernel_platform/common/Makefile
          
-         # 2. 注入“重置”逻辑
-         # 使用 := 强制覆盖变量，丢弃之前所有的 Android 预设参数(包括 --sysroot)
-         # 我们手动指定最基本的 -I 路径，确保 GCC 能找到 Ubuntu 的头文件
          cat <<EOF >> kernel_platform/common/Makefile
          
-         # --- FORCE HOST RESET START ---
-         # 强制使用系统编译器
+         # --- FORCE HOST RESET START (Fix libelf not found) ---
+         # 强制使用系统 GCC 编译 Host 工具
          HOSTCC  := gcc
          HOSTCXX := g++
          HOSTLD  := ld
          HOSTAR  := ar
          
-         # 【核心】重置编译参数 (清空 Android 的 prebuilts 路径)
-         # 直接指定 -I/usr/include 及其架构目录，确保 features.h 能找到 bits/timesize.h
-         BASIC_CFLAGS := -Wall -O2 -g -Wno-error -I/usr/include -I/usr/include/x86_64-linux-gnu -I/usr/include/libelf
-         BASIC_LDFLAGS := -L/usr/lib/x86_64-linux-gnu -L/usr/lib64
-         
-         # 覆盖内核构建系统的变量
-         HOSTCFLAGS  := \$(BASIC_CFLAGS)
-         HOSTCXXFLAGS := \$(BASIC_CFLAGS)
-         HOSTLDFLAGS := \$(BASIC_LDFLAGS)
-         
-         # 覆盖 KBUILD 系列变量 (防止脚本通过环境变量回注)
-         KBUILD_HOSTCFLAGS := \$(BASIC_CFLAGS)
-         KBUILD_HOSTCXXFLAGS := \$(BASIC_CFLAGS)
-         KBUILD_HOSTLDFLAGS := \$(BASIC_LDFLAGS)
+         # 强制注入宿主机头文件路径，解决 libelf: [ OFF ]
+         KBUILD_HOSTCFLAGS += ${MY_HOSTCFLAGS}
+         KBUILD_HOSTCXXFLAGS += ${MY_HOSTCFLAGS}
+         KBUILD_HOSTLDFLAGS += ${MY_HOSTLDFLAGS}
+         HOSTCFLAGS += ${MY_HOSTCFLAGS}
+         HOSTCXXFLAGS += ${MY_HOSTCFLAGS}
+         HOSTLDFLAGS += ${MY_HOSTLDFLAGS}
          # --- FORCE HOST RESET END ---
          EOF
          
-         # 3. 辅助修复：软链接 (作为最后一道防线)
-         sudo ln -sf /usr/include/libelf/libelf.h /usr/include/libelf.h
-         sudo ln -sf /usr/include/libelf/gelf.h /usr/include/gelf.h
+         echo "Starting build with Fixed Libelf Paths..."
+         
+         # 在命令行中也再次显式传递，防止被脚本内部重置
+         HOSTCFLAGS="${MY_HOSTCFLAGS}" HOSTLDFLAGS="${MY_HOSTLDFLAGS}" \
+         LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 \
+         ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
 
-         echo "Starting build with TOTAL HOST FLAG RESET..."
-         LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
          
       - name: Make AnyKernel3
         run: |
