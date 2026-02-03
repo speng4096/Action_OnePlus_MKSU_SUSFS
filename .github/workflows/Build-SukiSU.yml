@@ -335,21 +335,41 @@ jobs:
         if: ${{ github.event.inputs.CPU != 'sm8650' && github.event.inputs.CPU != 'sm7675' }}
         run: |
          cd kernel_workspace
-         
+                  
          sed -i '1i export PATH := /usr/bin:/usr/sbin:$(PATH)' kernel_platform/common/Makefile
          
-         sed -i 's/--rtlib=compiler-rt//g' kernel_platform/common/Makefile
-         sed -i 's/-Wno-unused-command-line-argument//g' kernel_platform/common/Makefile
+         CLANG_FLAGS="--rtlib=compiler-rt -Wno-unused-command-line-argument -stdlib=libc++ -fuse-ld=lld -Wno-format-invalid-specifier -Wno-gnu-alignof-expression"
 
-         echo "HOSTCC = gcc" >> kernel_platform/common/Makefile
-         echo "HOSTCXX = g++" >> kernel_platform/common/Makefile
-         echo "HOSTCFLAGS += -I/usr/include -I/usr/include/libelf" >> kernel_platform/common/Makefile
-
+         cat <<EOF >> kernel_platform/common/Makefile
+         
+         HOSTCC := gcc
+         HOSTCXX := g++
+         HOSTLD := ld
+         HOSTAR := ar
+         
+         HOSTCFLAGS += -Wno-error
+         HOSTCXXFLAGS += -Wno-error
+         
+         HOSTCFLAGS := \$(filter-out $CLANG_FLAGS, \$(HOSTCFLAGS))
+         KBUILD_HOSTCFLAGS := \$(filter-out $CLANG_FLAGS, \$(KBUILD_HOSTCFLAGS))
+         
+         HOSTCXXFLAGS := \$(filter-out $CLANG_FLAGS, \$(HOSTCXXFLAGS))
+         KBUILD_HOSTCXXFLAGS := \$(filter-out $CLANG_FLAGS, \$(KBUILD_HOSTCXXFLAGS))
+         
+         HOSTLDFLAGS := \$(filter-out $CLANG_FLAGS, \$(HOSTLDFLAGS))
+         KBUILD_HOSTLDFLAGS := \$(filter-out $CLANG_FLAGS, \$(KBUILD_HOSTLDFLAGS))
+         
+         HOSTCFLAGS += -I/usr/include -I/usr/include/libelf
+         # --- END FORCE ---
+         EOF
+         
          sudo ln -sf /usr/include/libelf/libelf.h /usr/include/libelf.h
          sudo ln -sf /usr/include/libelf/gelf.h /usr/include/gelf.h
 
-         echo "Starting build with Sanitized Environment..."
+         echo "Starting build with GCC Override + Warning Suppression..."
          LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
+
+
          
       - name: Make AnyKernel3
         run: |
