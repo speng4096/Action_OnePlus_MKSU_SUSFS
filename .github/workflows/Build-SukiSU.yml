@@ -134,7 +134,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt upgrade -y
-          sudo apt install -y python3 git curl
+          sudo apt install -y python3 git curl dwarves llvm
 
       - name: Show selected inputs debug
         run: |
@@ -259,9 +259,6 @@ jobs:
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$CONFIG_FILE"
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$CONFIG_FILE"
 
-          # 开启BTF支持
-          echo "CONFIG_DEBUG_INFO_BTF=y" >> "$CONFIG_FILE"
-          echo "CONFIG_DEBUG_INFO_BTF_MODULES=y" >> "$CONFIG_FILE" 
           echo "CONFIG_DEBUG_INFO=y" >> "$CONFIG_FILE"
 
           # Remove check_defconfig
@@ -330,6 +327,42 @@ jobs:
         run: |
          cd kernel_workspace
          LTO=thin SYSTEM_DLKM_RE_SIGN=0 BUILD_SYSTEM_DLKM=0 KMI_SYMBOL_LIST_STRICT_MODE=0 ./kernel_platform/oplus/build/oplus_build_kernel.sh ${{ github.event.inputs.CPUD }} ${{ github.event.inputs.BUILD_METHOD }}
+
+      - name: Generate Independent BTF
+        run: |
+          # 1. 寻找 vmlinux 文件
+          # 优先找 dist 目录下的，如果没有就找构建目录下的
+          VMLINUX_PATH=$(find ./kernel_workspace -name vmlinux | grep "dist/vmlinux" | head -n 1)
+          if [ -z "$VMLINUX_PATH" ]; then
+            VMLINUX_PATH=$(find ./kernel_workspace -name vmlinux | grep "out" | head -n 1)
+          fi
+
+          if [ ! -f "$VMLINUX_PATH" ]; then
+            echo "Error: vmlinux not found!"
+            # 如果没找到 vmlinux，可能只生成了 Image，这种情况下无法生成 BTF
+            exit 0 
+          fi
+
+          echo "Found vmlinux at: $VMLINUX_PATH"
+          
+          # 2. 使用 pahole 生成 BTF 段 (这是关键，绕过了内核构建系统的检查)
+          # -J: 生成 BTF
+          # --btf_gen_floats: 支持浮点数 (现代 eBPF 需要)
+          # --skip_encoding_btf_in_elf: 避免直接写回 vmlinux 导致文件校验失败（可选，但为了安全直接提取更好）
+          # 这里我们直接写回 vmlinux，因为反正编译已经结束了
+          echo "Generating BTF info..."
+          pahole -J --btf_gen_floats "$VMLINUX_PATH"
+
+          # 3. 提取 .BTF 段为独立文件
+          echo "Extracting .BTF section..."
+          llvm-objcopy --dump-section .BTF=./AnyKernel3/oneplus.btf "$VMLINUX_PATH"
+
+          if [ -f "./AnyKernel3/oneplus.btf" ]; then
+            echo "Success: oneplus.btf generated!"
+            ls -lh ./AnyKernel3/oneplus.btf
+          else
+            echo "Failed to generate oneplus.btf"
+          fi
 
       - name: Make AnyKernel3
         run: |
@@ -445,3 +478,9 @@ jobs:
         with:
           name: AnyKernel3_SukiSUUltra_${{ env.KSUVER }}_${{ steps.feil_clean.outputs.value }}${{ steps.suffix.outputs.value }}
           path: ./AnyKernel3/*
+
+      - name: Upload BTF File
+        uses: actions/upload-artifact@v4
+        with:
+          name: oneplus_btf_${{ github.event.inputs.CPUD }}
+          path: ./AnyKernel3/oneplus.btf
